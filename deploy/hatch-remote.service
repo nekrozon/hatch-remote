@@ -1,0 +1,42 @@
+# systemd unit for the Hatch remote on Linux.
+#
+# This is a template: adjust User/Group and WorkingDirectory, then
+#   sudo cp deploy/hatch-remote.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now hatch-remote
+#
+# Deliberately light on sandboxing: the service needs the system D-Bus socket
+# to reach BlueZ, and aggressive ProtectHome / RestrictAddressFamilies /
+# PrivateUsers settings break either D-Bus or the Bluetooth socket. Harden
+# further only with a dongle attached so you can actually test it.
+
+[Unit]
+Description=Hatch Rest BLE remote
+Wants=bluetooth.service
+After=bluetooth.service network-online.target
+# BLE at the edge of range drops often; never stop retrying.
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+User=hatch
+Group=hatch
+WorkingDirectory=/opt/hatch-remote
+ExecStart=/opt/hatch-remote/run.sh
+Restart=always
+RestartSec=5
+
+# run.sh writes .secret into the working directory on first start
+ReadWritePaths=/opt/hatch-remote
+ProtectSystem=full
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,26 @@
+# Example cloudflared ingress for exposing the Hatch remote.
+#
+# Put this on the same host that runs hatch-remote, so the server stays on
+# loopback and the tunnel is the only route in. Running the tunnel on a
+# *different* machine means binding the app to 0.0.0.0 and keeping that other
+# machine powered on, which defeats the point.
+#
+#   cloudflared tunnel login
+#   cloudflared tunnel create <tunnel-name>
+#   cloudflared tunnel route dns <tunnel-name> hatch.example.com
+#   sudo cloudflared service install    # installs + enables a systemd unit
+#
+# Validate before restarting:
+#   cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
+#   cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://hatch.example.com
+
+tunnel: <tunnel-uuid>
+credentials-file: /etc/cloudflared/<tunnel-uuid>.json
+
+ingress:
+  - hostname: hatch.example.com
+    service: http://127.0.0.1:8765
+    originRequest:
+      httpHostHeader: hatch.example.com
+
+  - service: http_status:404

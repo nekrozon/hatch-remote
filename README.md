@@ -117,6 +117,71 @@ dropped, and `server.py` retries once on any BLE error before returning a 503.
 BLE at this range is flaky enough that retry-and-resync beats trying to keep a
 perfect connection.
 
+## Deploying on Linux (systemd)
+
+macOS is a fine place to develop this but a bad place to run it — the laptop
+sleeps and moves around. On a small always-on box it becomes a real service.
+`hatch.py` needs no changes: bleak talks to BlueZ over D-Bus on Linux instead
+of CoreBluetooth.
+
+**The address format changes.** macOS hands out per-machine CoreBluetooth UUIDs
+(`6B6C…`); Linux gives you the device's real MAC. The macOS value is meaningless
+on the new host, so re-run `scan.py` there and put the MAC in `.env`.
+
+```sh
+sudo apt install bluez           # plus python3-venv if it's missing
+git clone <repo> /opt/hatch-remote && cd /opt/hatch-remote
+python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python scan.py         # note the MAC
+cp .env.example .env             # set HATCH_PASSWORD and the new HATCH_ADDR
+./run.sh                         # confirm it works by hand first
+
+sudo cp deploy/hatch-remote.service /etc/systemd/system/   # edit User/paths first
+sudo systemctl enable --now hatch-remote
+journalctl -u hatch-remote -f
+```
+
+Generate a fresh `.secret` on the new host rather than copying it across; that
+invalidates existing sessions once, which is what you want when the service moves.
+
+For remote access, run `cloudflared` on the *same* host — see
+`deploy/cloudflared-ingress.example.yml`.
+
+### Picking a USB Bluetooth adapter
+
+Most small-form-factor desktops have no Bluetooth at all, so check before
+buying: `bluetoothctl list`, `lsusb | grep -i blue`, `rfkill list bluetooth`.
+
+Get a **Realtek RTL8761B/RTL8761BU** (BT 5.x). It's driven by the in-tree
+`btrtl`/`btusb` modules, and distributions ship the firmware already — check
+with `ls /lib/firmware/rtl_bt/ | grep 8761`. If `rtl8761bu_fw.bin` is there,
+the dongle is plug-and-play. After plugging in, confirm the chipset with
+`lsusb`: `0bda:8771` is the one you want, because vendors quietly swap chipsets
+between hardware revisions of the same model number.
+
+Avoid cheap "CSR 4.0" dongles — the market is full of counterfeit CSR8510
+clones that enumerate but misbehave.
+
+Two things matter more than the dongle:
+
+- **Placement.** A tower's rear USB ports are the worst case: metal case, under
+  a desk, near the floor. A USB extension cable that gets the dongle up and in
+  line of sight is worth more than any upgrade. Check your margin with
+  `scan.py`, which prints RSSI — around -85 dBm is the edge of workable.
+- **2.4 GHz coexistence.** BLE and 2.4 GHz Wi-Fi share the band. If the host
+  also uses a USB Wi-Fi adapter, don't put the two dongles in adjacent ports;
+  separate them with the extension cable.
+
+If a non-root user can't reach BlueZ, check the D-Bus policy in
+`/usr/share/dbus-1/system.d/bluetooth.conf`. Recent Ubuntu allows
+`send_destination="org.bluez"` in the default policy, so no extra rule is
+needed; older policies restricted it to root and console users, in which case
+add the service user to the `bluetooth` group or ship a D-Bus policy drop-in.
+
+On Linux, the Docker route also becomes possible (`--network=host` plus the
+system D-Bus socket mounted) — see the first design note below for why it
+isn't on macOS.
+
 ## Design notes — three things that bit me
 
 Each of these overrode the original plan, and all three were found by testing an
